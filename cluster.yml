@@ -1,0 +1,82 @@
+- hosts: all
+  tasks:
+    - name: Repository
+      copy: src=./repository dest=/etc/yum.repos.d/virt7-docker-common-release.repo force=yes
+      
+    - name: Upgrade yum
+      yum: name=* state=latest
+      
+    - name: Install
+      yum: name={{item}} state=latest enablerepo=virt7-docker-common-release
+      with_items:
+       - kubernetes 
+       - flannel        
+      tags:
+       - install
+
+    - name: kubernetes config
+      copy: src=./kubernetes.config dest=/etc/kubernetes/config force=yes
+
+    - name: disable services
+      service: name={{item}} state=stopped enabled=false
+      with_items:
+       - firewalld
+      tags:
+       - disable_services
+
+- hosts: master
+  tasks:
+    - name: Install
+      yum: name={{item}} state=latest
+      with_items:
+       - etcd 
+      tags:
+       - install
+
+    - name: etcd config
+      copy: src=./etcd.config dest=/etc/etcd/etcd.conf force=yes
+      tags:
+       - config-etcd
+
+    - name: apiserver config
+      copy: src=./apiserver.config dest=/etc/kubernetes/apiserver force=yes
+
+    - name: flannel config
+      copy: src=./flannel.json dest=/home/vagrant/flannel.json force=yes
+
+    - name: restart services
+      service: name={{item}} state=restarted enabled=true
+      with_items:
+       - etcd 
+       - kube-apiserver 
+       - kube-controller-manager 
+       - kube-scheduler
+      tags:
+       - restart_services      
+       - config-etcd
+
+    - name: config flannel
+      shell: etcdctl set /atomic.io/network/config < /home/vagrant/flannel.json
+
+- hosts: minions
+  tasks:      
+    - name: kubelet config
+      copy: src=./kubelet.config dest=/etc/kubernetes/kubelet force=yes
+      
+    - name: flannel config
+      copy: src=./etcd-minion.config dest=/etc/sysconfig/flanneld force=yes
+      tags:
+       - config-etcd
+
+    - name: restart services
+      service: name={{item}} state=restarted enabled=true
+      with_items:
+       - kube-proxy 
+       - kubelet 
+       - flanneld
+       - docker 
+      tags:
+       - restart_services
+       - config-etcd
+
+
